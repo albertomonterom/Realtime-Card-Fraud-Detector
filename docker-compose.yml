@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ML Training & Scoring Service
+  # ═══════════════════════════════════════════════════════════════════════════
+  ml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: fraud_detector_ml
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_APP=src.scoring_service
+      - LOG_LEVEL=INFO
+      - MODEL_PATH=/opt/models/fraud_model.json
+      - FRAUD_THRESHOLD=${FRAUD_THRESHOLD:-0.7}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./ml/models:/opt/models
+      - ./ml/src:/opt/app/ml/src
+    depends_on:
+      - redis
+    networks:
+      - fraud-detector-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Redis: Feature Cache & Cardholder Profiles
+  # ═══════════════════════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: fraud_detector_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - fraud-detector-net
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Kafka: Event Streaming
+  # ═══════════════════════════════════════════════════════════════════════════
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: fraud_detector_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - fraud-detector-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: fraud_detector_kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - fraud-detector-net
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Prometheus: Metrics Collection
+  # ═══════════════════════════════════════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fraud_detector_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - fraud-detector-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Grafana: Dashboards & Visualization
+  # ═══════════════════════════════════════════════════════════════════════════
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fraud_detector_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: 'grafana-piechart-panel'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - fraud-detector-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Producer: Event Enrichment (Placeholder)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # producer:
+  #   build:
+  #     context: ./producer
+  #     dockerfile: Dockerfile
+  #   container_name: fraud_detector_producer
+  #   depends_on:
+  #     - kafka
+  #     - redis
+  #   environment:
+  #     LOG_LEVEL: INFO
+  #     KAFKA_BROKER: kafka:9092
+  #     REDIS_HOST: redis
+  #   networks:
+  #     - fraud-detector-net
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Spark: Stream Processor (Placeholder)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # spark:
+  #   build:
+  #     context: ./spark
+  #     dockerfile: Dockerfile
+  #   container_name: fraud_detector_spark
+  #   depends_on:
+  #     - kafka
+  #     - redis
+  #   environment:
+  #     SPARK_MASTER: local[*]
+  #     KAFKA_BROKER: kafka:9092
+  #   networks:
+  #     - fraud-detector-net
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Airflow: Orchestration (Placeholder)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # airflow-webserver:
+  #   build:
+  #     context: ./airflow
+  #     dockerfile: Dockerfile
+  #   container_name: fraud_detector_airflow
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - ml
+  #   environment:
+  #     AIRFLOW_HOME: /opt/airflow
+  #     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+  #   volumes:
+  #     - ./airflow:/opt/airflow
+  #   networks:
+  #     - fraud-detector-net
+
+networks:
+  fraud-detector-net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,89 @@
+# Data schema definitions (JSON Schema for data validation)
+
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Raw Transaction Schema",
+  "description": "Schema for raw transaction events",
+  "type": "object",
+  "properties": {
+    "transaction_id": {
+      "type": "string",
+      "description": "Unique transaction identifier"
+    },
+    "trans_date_trans_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Transaction datetime (ISO 8601)"
+    },
+    "amt": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Transaction amount in USD"
+    },
+    "cc_num": {
+      "type": "string",
+      "description": "Credit card number (last 4 digits in production)"
+    },
+    "lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90,
+      "description": "Cardholder latitude"
+    },
+    "long": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180,
+      "description": "Cardholder longitude"
+    },
+    "merch_lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90,
+      "description": "Merchant latitude"
+    },
+    "merch_long": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180,
+      "description": "Merchant longitude"
+    },
+    "category": {
+      "type": "string",
+      "description": "Merchant category (e.g., 'shopping_net', 'gas_transport')"
+    },
+    "gender": {
+      "type": "string",
+      "enum": ["M", "F"],
+      "description": "Cardholder gender"
+    },
+    "dob": {
+      "type": "string",
+      "format": "date",
+      "description": "Cardholder date of birth"
+    },
+    "city_pop": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Population of cardholder's city"
+    },
+    "is_fraud": {
+      "type": "integer",
+      "enum": [0, 1],
+      "description": "Fraud label (only in training data)"
+    }
+  },
+  "required": [
+    "trans_date_trans_time",
+    "amt",
+    "cc_num",
+    "lat",
+    "long",
+    "merch_lat",
+    "merch_long",
+    "category",
+    "gender",
+    "dob",
+    "city_pop"
+  ]
+}

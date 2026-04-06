@@ -1,0 +1,15 @@
+"""Airflow Orchestration — Requirements"""
+
+# Orchestration
+apache-airflow==2.7.3
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# ML
+xgboost==2.0.3
+scikit-learn==1.3.2
+
+# Utilities
+python-dotenv==1.0.0

@@ -1,0 +1,228 @@
+"""
+ML Scoring Service — Flask API that receives transaction data
+and returns fraud probability scores with real-time metrics.
+
+Endpoints:
+    GET  /health              Health check
+    GET  /metrics             Prometheus metrics (Pull model)
+    POST /score               Score pre-engineered features
+    POST /enrich_and_score    Raw txn → enrich → engineer → score
+
+Usage:
+    python -m ml.src.scoring_service
+"""
+import json
+import logging
+import os
+import time
+from datetime import datetime
+
+import numpy as np
+import xgboost as xgb
+import redis
+from flask import Flask, request, jsonify
+from prometheus_client import (
+    Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+)
+
+from . import features, config
+
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL),
+    format='%(asctime)s [SCORER] %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+# ── Prometheus Metrics ────────────────────────────────────────
+PREDICTIONS_TOTAL = Counter(
+    'fraud_predictions_total',
+    'Total predictions made',
+    ['result']
+)
+PREDICTION_LATENCY = Histogram(
+    'fraud_prediction_latency_seconds',
+    'Time to score one transaction',
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
+)
+FRAUD_PROBABILITY = Histogram(
+    'fraud_probability_distribution',
+    'Distribution of fraud scores',
+    buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+)
+MODEL_VERSION_GAUGE = Gauge(
+    'fraud_model_version_info',
+    'Current model version timestamp'
+)
+
+# ── Load model + metadata ────────────────────────────────────
+model = None
+metadata = None
+redis_client = None
+
+
+def load_model():
+    """Load XGBoost model and metadata from config paths."""
+    global model, metadata
+    logger.info(f"Loading model from {config.MODEL_PATH}")
+    model = xgb.XGBClassifier()
+    model.load_model(str(config.MODEL_PATH))
+
+    if config.METADATA_PATH.exists():
+        with open(config.METADATA_PATH) as f:
+            metadata = json.load(f)
+        logger.info(f"✓ Model version: {metadata.get('model_version', 'unknown')}")
+        logger.info(f"✓ Feature count: {len(metadata.get('feature_columns', []))}")
+        logger.info(f"✓ ROC AUC: {metadata.get('roc_auc', 'N/A')}")
+        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
+        logger.info(f"✓ Decision threshold: {threshold}")
+        MODEL_VERSION_GAUGE.set(1)
+    else:
+        logger.warning(f"Metadata file not found: {config.METADATA_PATH}")
+        metadata = {'feature_columns': [], 'best_threshold': config.FRAUD_THRESHOLD}
+
+
+def get_redis():
+    """Get or create Redis connection."""
+    global redis_client
+    if redis_client is None:
+        redis_client = redis.Redis(
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            decode_responses=True
+        )
+    return redis_client
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint."""
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': model is not None,
+        'model_version': metadata.get('model_version', 'unknown') if metadata else None,
+    })
+
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    """Prometheus metrics endpoint (scrape target)."""
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
+
+@app.route('/score', methods=['POST'])
+def score_transaction():
+    """
+    Score a single transaction with pre-engineered features.
+    
+    Expects JSON dict mapping feature names to values.
+    Returns fraud_probability, is_fraud_predicted, etc.
+    
+    Example:
+        POST /score
+        {
+            "amt": 123.45,
+            "hour": 14,
+            "day_of_week": 2,
+            ... (all feature columns from metadata)
+        }
+    """
+    start = time.time()
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No JSON payload'}), 400
+
+    try:
+        feature_cols = metadata.get('feature_columns', [])
+        features_array = np.array([[data.get(col, 0) for col in feature_cols]])
+
+        proba = float(model.predict_proba(features_array)[0][1])
+        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
+        is_fraud = proba >= threshold
+
+        # Update Prometheus metrics
+        latency = time.time() - start
+        PREDICTION_LATENCY.observe(latency)
+        FRAUD_PROBABILITY.observe(proba)
+        PREDICTIONS_TOTAL.labels(result='fraud' if is_fraud else 'legit').inc()
+
+        return jsonify({
+            'fraud_probability': round(proba, 5),
+            'is_fraud_predicted': bool(is_fraud),
+            'threshold': threshold,
+            'model_version': metadata.get('model_version', 'unknown'),
+            'latency_ms': round(latency * 1000, 2),
+        })
+
+    except Exception as e:
+        logger.error(f"Scoring error: {e}", exc_info=True)
+        PREDICTIONS_TOTAL.labels(result='error').inc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/enrich_and_score', methods=['POST'])
+def enrich_and_score():
+    """
+    Full pipeline: receive raw transaction → engineer features → score.
+    
+    This endpoint uses the shared feature engineering module to transform
+    raw transaction data, ensuring consistency with training pipelines.
+    
+    Expects JSON with raw transaction fields (trans_date_trans_time, amt,
+    cc_num, lat, long, merch_lat, merch_long, category, gender, dob, city_pop, etc.)
+    
+    Returns fraud score + engineered features for debugging/logging.
+    """
+    start = time.time()
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No JSON payload'}), 400
+
+    try:
+        # Build minimal DataFrame for feature engineering
+        df = pd.DataFrame([data])
+        df, _ = features.engineer_features(df, fit_encoders=False)
+        
+        # Extract feature vectors
+        feature_cols = features.get_feature_columns()
+        features_array = np.array([[df[col].iloc[0] for col in feature_cols]])
+
+        proba = float(model.predict_proba(features_array)[0][1])
+        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
+        is_fraud = proba >= threshold
+
+        latency = time.time() - start
+        PREDICTION_LATENCY.observe(latency)
+        FRAUD_PROBABILITY.observe(proba)
+        PREDICTIONS_TOTAL.labels(result='fraud' if is_fraud else 'legit').inc()
+
+        # Return engineered features for debugging
+        engineered = {col: float(df[col].iloc[0]) for col in feature_cols}
+
+        return jsonify({
+            'transaction_id': data.get('transaction_id', ''),
+            'fraud_probability': round(proba, 5),
+            'is_fraud_predicted': bool(is_fraud),
+            'threshold': threshold,
+            'engineered_features': engineered,
+            'model_version': metadata.get('model_version', 'unknown'),
+            'latency_ms': round(latency * 1000, 2),
+        })
+
+    except Exception as e:
+        logger.error(f"Enrich+score error: {e}", exc_info=True)
+        PREDICTIONS_TOTAL.labels(result='error').inc()
+        return jsonify({'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    import pandas as pd
+    load_model()
+    logger.info(
+        f"Starting scoring service on 0.0.0.0:5001 "
+        f"(threshold={config.FRAUD_THRESHOLD})"
+    )
+    app.run(host='0.0.0.0', port=5001, debug=False)

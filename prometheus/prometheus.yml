@@ -1,0 +1,56 @@
+# Prometheus Configuration
+# Scrapes metrics from all services every 15 seconds
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alerting rules (optional — can add Alertmanager later)
+rule_files:
+  # - "alert_rules.yml"
+
+scrape_configs:
+  # ── Prometheus self-monitoring ──────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── ML Scoring Service ─────────────────────────────────────
+  # Exposes: fraud_predictions_total, fraud_prediction_latency_seconds,
+  #          fraud_probability_distribution
+  - job_name: 'ml-scorer'
+    static_configs:
+      - targets: ['ml-scorer:5001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # ── Kafka Broker (via JMX exporter) ────────────────────────
+  # To enable, add kafka-jmx-exporter sidecar container
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka-jmx-exporter:9404']
+
+  # ── Redis Exporter ─────────────────────────────────────────
+  # To enable, add redis_exporter container
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # ── Spark Metrics ──────────────────────────────────────────
+  # Spark exposes metrics via its REST API, not Prometheus format
+  # Use spark-metrics-sink or custom exporter
+  # - job_name: 'spark'
+  #   static_configs:
+  #     - targets: ['spark-master:8080']
+
+  # ── PostgreSQL Exporter ────────────────────────────────────
+  # To enable, add postgres_exporter container
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # ── Node Exporter (host system metrics) ────────────────────
+  # To enable, add node_exporter container
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

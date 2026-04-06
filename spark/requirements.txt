@@ -1,0 +1,17 @@
+"""Spark Stream Processor — Requirements"""
+
+# Spark
+pyspark==3.5.0
+
+# Streaming
+kafka-python==2.0.2
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Caching
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.0

@@ -1,0 +1,1 @@
+"""Spark stream processor module."""
