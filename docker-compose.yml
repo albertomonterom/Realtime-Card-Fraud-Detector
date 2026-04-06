@@ -14,13 +14,13 @@ services:
     environment:
       - FLASK_APP=src.scoring_service
       - LOG_LEVEL=INFO
-      - MODEL_PATH=/opt/models/fraud_model.json
-      - FRAUD_THRESHOLD=${FRAUD_THRESHOLD:-0.7}
+      - MODEL_PATH=/opt/app/models/xgboost_model.pkl
+      - FRAUD_THRESHOLD=${FRAUD_THRESHOLD:-0.85}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
-      - ./ml/models:/opt/models
-      - ./ml/src:/opt/app/ml/src
+      - ./ml/models:/opt/app/models
+      - ./ml/src:/opt/app/src
     depends_on:
       - redis
     networks:
