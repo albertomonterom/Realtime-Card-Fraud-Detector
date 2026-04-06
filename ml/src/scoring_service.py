@@ -15,9 +15,11 @@ import json
 import logging
 import os
 import time
+import pickle
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 import xgboost as xgb
 import redis
 from flask import Flask, request, jsonify
@@ -64,23 +66,23 @@ redis_client = None
 
 def load_model():
     """Load XGBoost model and metadata from config paths."""
+    import pickle
     global model, metadata
     logger.info(f"Loading model from {config.MODEL_PATH}")
-    model = xgb.XGBClassifier()
-    model.load_model(str(config.MODEL_PATH))
-
-    if config.METADATA_PATH.exists():
-        with open(config.METADATA_PATH) as f:
-            metadata = json.load(f)
-        logger.info(f"✓ Model version: {metadata.get('model_version', 'unknown')}")
-        logger.info(f"✓ Feature count: {len(metadata.get('feature_columns', []))}")
-        logger.info(f"✓ ROC AUC: {metadata.get('roc_auc', 'N/A')}")
-        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
-        logger.info(f"✓ Decision threshold: {threshold}")
-        MODEL_VERSION_GAUGE.set(1)
-    else:
-        logger.warning(f"Metadata file not found: {config.METADATA_PATH}")
-        metadata = {'feature_columns': [], 'best_threshold': config.FRAUD_THRESHOLD}
+    
+    with open(config.MODEL_PATH, 'rb') as f:
+        model_data = pickle.load(f)
+    
+    model = model_data['model']
+    metadata = model_data['metrics']
+    metadata['feature_columns'] = model_data['feature_columns']
+    metadata['decision_threshold'] = model_data.get('decision_threshold', config.FRAUD_THRESHOLD)
+    
+    logger.info(f"✓ Model loaded successfully")
+    logger.info(f"✓ Feature count: {len(metadata.get('feature_columns', []))}")
+    logger.info(f"✓ ROC AUC: {metadata.get('roc_auc', 'N/A'):.4f}")
+    logger.info(f"✓ Decision threshold: {metadata.get('decision_threshold', config.FRAUD_THRESHOLD)}")
+    MODEL_VERSION_GAUGE.set(1)
 
 
 def get_redis():
@@ -139,7 +141,7 @@ def score_transaction():
         features_array = np.array([[data.get(col, 0) for col in feature_cols]])
 
         proba = float(model.predict_proba(features_array)[0][1])
-        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
+        threshold = metadata.get('decision_threshold', config.FRAUD_THRESHOLD)
         is_fraud = proba >= threshold
 
         # Update Prometheus metrics
@@ -191,7 +193,7 @@ def enrich_and_score():
         features_array = np.array([[df[col].iloc[0] for col in feature_cols]])
 
         proba = float(model.predict_proba(features_array)[0][1])
-        threshold = metadata.get('best_threshold', config.FRAUD_THRESHOLD)
+        threshold = metadata.get('decision_threshold', config.FRAUD_THRESHOLD)
         is_fraud = proba >= threshold
 
         latency = time.time() - start
@@ -219,10 +221,9 @@ def enrich_and_score():
 
 
 if __name__ == '__main__':
-    import pandas as pd
     load_model()
     logger.info(
-        f"Starting scoring service on 0.0.0.0:5001 "
+        f"Starting scoring service on {config.API_HOST}:{config.API_PORT} "
         f"(threshold={config.FRAUD_THRESHOLD})"
     )
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    app.run(host=config.API_HOST, port=config.API_PORT, debug=config.API_DEBUG)

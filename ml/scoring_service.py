@@ -6,8 +6,11 @@ import json
 import os
 import time
 import logging
+import pickle
+from datetime import datetime
 
 import numpy as np
+import pandas as pd
 import xgboost as xgb
 import redis
 from flask import Flask, request, jsonify
@@ -15,7 +18,12 @@ from prometheus_client import (
     Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 )
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [SCORER] %(message)s')
+from src import config, features
+
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL),
+    format='%(asctime)s [SCORER] %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -36,11 +44,7 @@ MODEL_VERSION_GAUGE = Gauge(
     'fraud_model_version_info', 'Current model version timestamp'
 )
 
-# ── Load model + metadata ────────────────────────────────────
-MODEL_PATH    = os.getenv('MODEL_PATH', '/opt/models/fraud_model.json')
-REDIS_HOST    = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT    = int(os.getenv('REDIS_PORT', 6379))
-FRAUD_THRESHOLD = float(os.getenv('FRAUD_THRESHOLD', 0.7))
+# ── Globals ────────────────────────────────────────────────
 
 model = None
 metadata = None
@@ -48,36 +52,44 @@ redis_client = None
 
 
 def load_model():
+    """Load XGBoost model and metadata from pickle file."""
     global model, metadata
-    logger.info(f"Loading model from {MODEL_PATH}")
-    model = xgb.XGBClassifier()
-    model.load_model(MODEL_PATH)
-
-    meta_path = MODEL_PATH.replace('fraud_model.json', 'model_metadata.json')
-    if os.path.exists(meta_path):
-        with open(meta_path) as f:
-            metadata = json.load(f)
-        logger.info(f"Model version: {metadata.get('model_version', 'unknown')}")
-        logger.info(f"Features: {metadata.get('feature_columns', [])}")
-        logger.info(f"ROC AUC: {metadata.get('roc_auc', 'N/A')}")
-        FRAUD_THRESHOLD_USED = metadata.get('best_threshold', FRAUD_THRESHOLD)
-        logger.info(f"Threshold: {FRAUD_THRESHOLD_USED}")
-    else:
-        metadata = {'feature_columns': [], 'best_threshold': FRAUD_THRESHOLD}
+    logger.info(f"Loading model from {config.MODEL_PATH}")
+    
+    with open(config.MODEL_PATH, 'rb') as f:
+        model_data = pickle.load(f)
+    
+    model = model_data['model']
+    metadata = model_data['metrics']
+    metadata['feature_columns'] = model_data['feature_columns']
+    metadata['decision_threshold'] = model_data.get('decision_threshold', config.FRAUD_THRESHOLD)
+    
+    logger.info(f"✓ Model loaded successfully")
+    logger.info(f"✓ Feature count: {len(metadata.get('feature_columns', []))}")
+    logger.info(f"✓ ROC AUC: {metadata.get('roc_auc', 'N/A')}")
+    logger.info(f"✓ Decision threshold: {metadata.get('decision_threshold', config.FRAUD_THRESHOLD)}")
 
 
 def get_redis():
+    """Get or create Redis connection."""
     global redis_client
     if redis_client is None:
         redis_client = redis.Redis(
-            host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+            host=config.REDIS_HOST,
+            port=config.REDIS_PORT,
+            decode_responses=True
         )
     return redis_client
 
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy', 'model_loaded': model is not None})
+    """Health check endpoint."""
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': model is not None,
+        'model_version': metadata.get('model_version', 'unknown') if metadata else None,
+    })
 
 
 @app.route('/metrics', methods=['GET'])
@@ -105,7 +117,7 @@ def score_transaction():
         features = np.array([[data.get(col, 0) for col in feature_cols]])
 
         proba = float(model.predict_proba(features)[0][1])
-        threshold = metadata.get('best_threshold', FRAUD_THRESHOLD)
+        threshold = metadata.get('decision_threshold', config.FRAUD_THRESHOLD)
         is_fraud = proba >= threshold
 
         # Update Prometheus metrics
@@ -149,8 +161,7 @@ def enrich_and_score():
 
         amt = float(data.get('amt', 0))
 
-        # Engineer features (mirrors train_model.py logic)
-        from datetime import datetime
+        # Engineer features using canonical feature module
         trans_dt = datetime.fromisoformat(data.get('trans_date_trans_time', datetime.utcnow().isoformat()))
 
         features = {
@@ -190,7 +201,7 @@ def enrich_and_score():
         feature_cols = metadata.get('feature_columns', [])
         X = np.array([[features.get(col, 0) for col in feature_cols]])
         proba = float(model.predict_proba(X)[0][1])
-        threshold = metadata.get('best_threshold', FRAUD_THRESHOLD)
+        threshold = metadata.get('decision_threshold', config.FRAUD_THRESHOLD)
         is_fraud = proba >= threshold
 
         latency = time.time() - start
@@ -215,5 +226,8 @@ def enrich_and_score():
 
 if __name__ == '__main__':
     load_model()
-    logger.info(f"Starting scoring service on port 5001 (threshold={FRAUD_THRESHOLD})")
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    logger.info(
+        f"Starting scoring service on {config.API_HOST}:{config.API_PORT} "
+        f"(threshold={config.FRAUD_THRESHOLD})"
+    )
+    app.run(host=config.API_HOST, port=config.API_PORT, debug=config.API_DEBUG)
