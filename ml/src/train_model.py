@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import pickle
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -123,12 +123,12 @@ def train(data_path: str, output_dir: str = None):
 
     # Save model
     os.makedirs(output_dir, exist_ok=True)
-    model_version = datetime.utcnow().strftime("v%Y%m%d_%H%M%S")
+    model_version = datetime.now(timezone.utc).strftime("v%Y%m%d_%H%M%S")
     
     # Metrics dict for metadata
     metrics = {
         'model_version':    model_version,
-        'trained_at':       datetime.utcnow().isoformat(),
+        'trained_at':       datetime.now(timezone.utc).isoformat(),
         'roc_auc':          round(roc_auc, 5),
         'precision':        round(precision_score(y_test, y_pred), 5),
         'recall':           round(recall_score(y_test, y_pred), 5),

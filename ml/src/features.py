@@ -39,7 +39,7 @@ REQUIRED_INPUT_COLUMNS = {
 }
 
 
-def engineer_features(df: pd.DataFrame, fit_encoders: bool = False) -> tuple:
+def engineer_features(df: pd.DataFrame, fit_encoders: bool = False, encoders: dict = None) -> tuple:
     """
     Transform raw transaction data into model features.
     
@@ -48,14 +48,15 @@ def engineer_features(df: pd.DataFrame, fit_encoders: bool = False) -> tuple:
     Args:
         df: DataFrame with raw transaction data
         fit_encoders: If True, fit LabelEncoders & return them.
-                     If False, assume they're already fit (for inference).
+                     If False, use provided encoders (must pass encoders dict)
+        encoders: Dict of pre-fit LabelEncoders. Required when fit_encoders=False.
                      
     Returns:
         (features_df, encoders) if fit_encoders=True
         (features_df, None) if fit_encoders=False
         
     Raises:
-        ValueError: If required columns are missing
+        ValueError: If required columns are missing or encoders not provided during inference
     """
     df = df.copy()  # Don't mutate input
     required = REQUIRED_INPUT_COLUMNS - {'is_fraud'}  # is_fraud optional
@@ -64,8 +65,18 @@ def engineer_features(df: pd.DataFrame, fit_encoders: bool = False) -> tuple:
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
     
+    # During inference (fit_encoders=False), encoders must be provided with all required keys
+    if not fit_encoders:
+        if encoders is None:
+            raise ValueError("encoders dict must be provided when fit_encoders=False")
+        required_encoders = {'category', 'state', 'gender'}
+        missing_encoders = required_encoders - set(encoders.keys())
+        if missing_encoders:
+            raise ValueError(f"Missing encoders: {missing_encoders}. Required: {required_encoders}")
+    
     logger.info("Engineering features...")
-    encoders = {}
+    if fit_encoders:
+        encoders = {}
 
     # ─── Temporal Features ───────────────────────────────────
     # Extract time-based patterns from transaction timestamp
@@ -128,19 +139,28 @@ def engineer_features(df: pd.DataFrame, fit_encoders: bool = False) -> tuple:
     # Fit encoders during training; use same encoders for inference to ensure consistency
     
     # Category encoding: EDA found online (shopping_net, misc_net) are fraud hotspots
-    le_cat = LabelEncoder()
-    df['category_encoded'] = le_cat.fit_transform(df['category'].astype(str))
-    encoders['category'] = le_cat
+    if fit_encoders:
+        le_cat = LabelEncoder()
+        df['category_encoded'] = le_cat.fit_transform(df['category'].astype(str))
+        encoders['category'] = le_cat
+    else:
+        df['category_encoded'] = encoders['category'].transform(df['category'].astype(str))
     
     # State encoding: EDA found geographic concentration (NY highest fraud count)
-    le_state = LabelEncoder()
-    df['state_encoded'] = le_state.fit_transform(df['state'].astype(str))
-    encoders['state'] = le_state
+    if fit_encoders:
+        le_state = LabelEncoder()
+        df['state_encoded'] = le_state.fit_transform(df['state'].astype(str))
+        encoders['state'] = le_state
+    else:
+        df['state_encoded'] = encoders['state'].transform(df['state'].astype(str))
     
     # Gender encoding: Binary feature (M/F) - low discriminative power but preserves signal
-    le_gender = LabelEncoder()
-    df['gender_encoded'] = le_gender.fit_transform(df['gender'].astype(str))
-    encoders['gender'] = le_gender
+    if fit_encoders:
+        le_gender = LabelEncoder()
+        df['gender_encoded'] = le_gender.fit_transform(df['gender'].astype(str))
+        encoders['gender'] = le_gender
+    else:
+        df['gender_encoded'] = encoders['gender'].transform(df['gender'].astype(str))
 
     # ─── Demographic Features ───────────────────────────────
     # Extract customer demographics that may correlate with fraud patterns

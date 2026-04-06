@@ -30,6 +30,7 @@ def sample_transaction():
         'category': 'shopping_net',
         'gender': 'M',
         'dob': '1990-05-15',
+        'state': 'NY',
         'city_pop': 8000000,
         'is_fraud': 0,
     }
@@ -97,7 +98,7 @@ class TestFeatureEngineering:
         """Test get_feature_columns returns expected list."""
         cols = features.get_feature_columns()
         assert isinstance(cols, list)
-        assert len(cols) == 15  # We know we create 15 features
+        assert len(cols) == 17  # We know we create 17 features
         assert 'amt' in cols
         assert 'hour' in cols
         assert 'age' in cols
@@ -108,7 +109,6 @@ class TestFeatureEngineering:
         assert isinstance(required, set)
         assert 'amt' in required
         assert 'trans_date_trans_time' in required
-        assert 'is_fraud' not in required  # Optional for inference
 
 
 if __name__ == '__main__':

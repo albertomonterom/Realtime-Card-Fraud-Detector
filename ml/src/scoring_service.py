@@ -21,7 +21,6 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-import redis
 from flask import Flask, request, jsonify
 from prometheus_client import (
     Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -61,13 +60,13 @@ MODEL_VERSION_GAUGE = Gauge(
 # ── Load model + metadata ────────────────────────────────────
 model = None
 metadata = None
-redis_client = None
+model_encoders = None
 
 
 def load_model():
     """Load XGBoost model and metadata from config paths."""
     import pickle
-    global model, metadata
+    global model, metadata, model_encoders
     logger.info(f"Loading model from {config.MODEL_PATH}")
     
     with open(config.MODEL_PATH, 'rb') as f:
@@ -77,24 +76,14 @@ def load_model():
     metadata = model_data['metrics']
     metadata['feature_columns'] = model_data['feature_columns']
     metadata['decision_threshold'] = model_data.get('decision_threshold', config.FRAUD_THRESHOLD)
+    model_encoders = model_data.get('encoders', {})  # Load encoders from model
     
     logger.info(f"✓ Model loaded successfully")
     logger.info(f"✓ Feature count: {len(metadata.get('feature_columns', []))}")
+    logger.info(f"✓ Encoders loaded: {list(model_encoders.keys())}")
     logger.info(f"✓ ROC AUC: {metadata.get('roc_auc', 'N/A'):.4f}")
     logger.info(f"✓ Decision threshold: {metadata.get('decision_threshold', config.FRAUD_THRESHOLD)}")
     MODEL_VERSION_GAUGE.set(1)
-
-
-def get_redis():
-    """Get or create Redis connection."""
-    global redis_client
-    if redis_client is None:
-        redis_client = redis.Redis(
-            host=config.REDIS_HOST,
-            port=config.REDIS_PORT,
-            decode_responses=True
-        )
-    return redis_client
 
 
 @app.route('/health', methods=['GET'])
@@ -186,7 +175,7 @@ def enrich_and_score():
     try:
         # Build minimal DataFrame for feature engineering
         df = pd.DataFrame([data])
-        df, _ = features.engineer_features(df, fit_encoders=False)
+        df, _ = features.engineer_features(df, fit_encoders=False, encoders=model_encoders)
         
         # Extract feature vectors
         feature_cols = features.get_feature_columns()
