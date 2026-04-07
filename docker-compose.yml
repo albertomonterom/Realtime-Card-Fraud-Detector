@@ -230,25 +230,6 @@ services:
     networks:
       - fraud-detector-net
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Airflow: Orchestration (Placeholder)
-  # ═══════════════════════════════════════════════════════════════════════════
-  # airflow-webserver:
-  #   build:
-  #     context: ./airflow
-  #     dockerfile: Dockerfile
-  #   container_name: fraud_detector_airflow
-  #   ports:
-  #     - "8080:8080"
-  #   depends_on:
-  #     - ml
-  #   environment:
-  #     AIRFLOW_HOME: /opt/airflow
-  #     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
-  #   volumes:
-  #     - ./airflow:/opt/airflow
-  #   networks:
-  #     - fraud-detector-net
 
 networks:
   fraud-detector-net:
