@@ -26,7 +26,7 @@ from prometheus_client import (
     Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 )
 
-from . import features, config
+from . import features, config, database
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
@@ -65,7 +65,6 @@ model_encoders = None
 
 def load_model():
     """Load XGBoost model and metadata from config paths."""
-    import pickle
     global model, metadata, model_encoders
     logger.info(f"Loading model from {config.MODEL_PATH}")
     
@@ -189,6 +188,34 @@ def enrich_and_score():
         PREDICTION_LATENCY.observe(latency)
         FRAUD_PROBABILITY.observe(proba)
         PREDICTIONS_TOTAL.labels(result='fraud' if is_fraud else 'legit').inc()
+
+        # Log prediction to database
+        try:
+            db = database.get_db()
+            prediction_log = {
+                'transaction_id': data.get('transaction_id', ''),
+                'cc_num': data.get('cc_num', ''),
+                'merchant': data.get('merchant', ''),
+                'category': data.get('category', ''),
+                'amt': float(data.get('amt', 0)),
+                'city': data.get('city', ''),
+                'state': data.get('state', ''),
+                'lat': float(data.get('lat', 0)),
+                'long': float(data.get('long', 0)),
+                'trans_time': data.get('trans_date_trans_time', ''),
+                'amt_deviation': float(df['amt_deviation'].iloc[0]) if 'amt_deviation' in df.columns else 0,
+                'hour': int(df['hour'].iloc[0]) if 'hour' in df.columns else 0,
+                'day_of_week': int(df['day_of_week'].iloc[0]) if 'day_of_week' in df.columns else 0,
+            }
+            db.log_prediction(
+                transaction_data=prediction_log,
+                fraud_prob=float(proba),
+                is_fraud=bool(is_fraud),
+                latency_ms=round(latency * 1000, 2),
+                model_version=metadata.get('model_version', 'unknown'),
+            )
+        except Exception as db_error:
+            logger.warning(f"Failed to log prediction to database: {db_error}")
 
         # Return engineered features for debugging
         engineered = {col: float(df[col].iloc[0]) for col in feature_cols}

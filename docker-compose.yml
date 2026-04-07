@@ -2,6 +2,29 @@ version: '3.8'
 
 services:
   # ═══════════════════════════════════════════════════════════════════════════
+  # PostgreSQL: Transaction & Prediction Logging
+  # ═══════════════════════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:15-alpine
+    container_name: fraud_detector_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-fraud_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fraud_password}
+      POSTGRES_DB: ${DB_NAME:-fraud_detection}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - fraud-detector-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraud_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # ML Training & Scoring Service
   # ═══════════════════════════════════════════════════════════════════════════
   ml:
@@ -18,6 +41,11 @@ services:
       - FRAUD_THRESHOLD=${FRAUD_THRESHOLD:-0.85}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-fraud_detection}
+      - DB_USER=${DB_USER:-fraud_user}
+      - DB_PASSWORD=${DB_PASSWORD:-fraud_password}
     volumes:
       - ./ml/models:/opt/app/models
       - ./ml/src:/opt/app/src
@@ -136,39 +164,71 @@ services:
       retries: 3
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Producer: Event Enrichment (Placeholder)
-  # ═══════════════════════════════════════════════════════════════════════════
-  # producer:
-  #   build:
-  #     context: ./producer
-  #     dockerfile: Dockerfile
-  #   container_name: fraud_detector_producer
-  #   depends_on:
-  #     - kafka
-  #     - redis
-  #   environment:
-  #     LOG_LEVEL: INFO
-  #     KAFKA_BROKER: kafka:9092
-  #     REDIS_HOST: redis
-  #   networks:
-  #     - fraud-detector-net
-
-  # ═══════════════════════════════════════════════════════════════════════════
   # Spark: Stream Processor (Placeholder)
   # ═══════════════════════════════════════════════════════════════════════════
-  # spark:
-  #   build:
-  #     context: ./spark
-  #     dockerfile: Dockerfile
-  #   container_name: fraud_detector_spark
-  #   depends_on:
-  #     - kafka
-  #     - redis
-  #   environment:
-  #     SPARK_MASTER: local[*]
-  #     KAFKA_BROKER: kafka:9092
-  #   networks:
-  #     - fraud-detector-net
+  spark:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: fraud_detector_spark
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+      - ml
+    environment:
+      SPARK_MASTER: local[*]
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: raw-transactions
+      ML_API_URL: http://ml:5001/enrich_and_score
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-fraud_detection}
+      DB_USER: ${DB_USER:-fraud_user}
+      DB_PASSWORD: ${DB_PASSWORD:-fraud_password}
+    volumes:
+      - ./spark:/app/spark
+    networks:
+      - fraud-detector-net
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Producer: Transaction Event Producer
+  # ═══════════════════════════════════════════════════════════════════════════
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: fraud_detector_producer
+    depends_on:
+      - kafka
+    environment:
+      LOG_LEVEL: INFO
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_HOST: redis
+    volumes:
+      - ./data/raw:/opt/data
+    networks:
+      - fraud-detector-net
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Dashboard: Real-time Fraud Sentinel UI
+  # ═══════════════════════════════════════════════════════════════════════════
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: fraud_detector_dashboard
+    ports:
+      - "8050:8050"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${DB_NAME:-fraud_detection}
+      DB_USER: ${DB_USER:-fraud_user}
+      DB_PASSWORD: ${DB_PASSWORD:-fraud_password}
+    depends_on:
+      - postgres
+    networks:
+      - fraud-detector-net
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Airflow: Orchestration (Placeholder)
@@ -196,5 +256,6 @@ networks:
 
 volumes:
   redis_data:
+  postgres_data:
   prometheus_data:
   grafana_data:

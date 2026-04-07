@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraud Sentinel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:       #060c1a;
+  --surface:  #0c1628;
+  --s2:       #101d30;
+  --border:   rgba(0,212,255,.08);
+  --cyan:     #00d4ff;
+  --red:      #ff3056;
+  --green:    #10b981;
+  --yellow:   #f59e0b;
+  --orange:   #f97316;
+  --text:     #b8cad8;
+  --dim:      #435568;
+  --mono:     'JetBrains Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,.015) 1px, transparent 1px);
+  background-size: 44px 44px;
+  pointer-events: none;
+}
+
+/* ── Header ─────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(6,12,26,.97);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: .4px;
+}
+.logo svg { color: var(--cyan); }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--red);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+.live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.7; transform:scale(1.25); }
+}
+
+/* ── Stats Bar ───────────────────── */
+.stats-bar {
+  display: flex;
+  height: 58px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  overflow: hidden;
+}
+.stat {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 110px;
+}
+.stat-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.stat-value {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: #e2e8f0;
+  line-height: 1;
+}
+.stat-value.red    { color: var(--red); }
+.stat-value.yellow { color: var(--yellow); }
+.stat-value.green  { color: var(--green); }
+
+.chart-stat {
+  flex: 1;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* ── Main ────────────────────────── */
+.main {
+  flex: 1;
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+.feed { flex: 0 0 63%; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.side { flex: 1; display: flex; flex-direction: column; gap: 1px; background: var(--border); overflow: hidden; }
+
+/* section header */
+.sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sec-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.sec-meta { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+/* ── Table ───────────────────────── */
+.table-wrap { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--s2) transparent; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  position: sticky; top: 0;
+  background: var(--s2);
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+tbody tr {
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid rgba(255,255,255,.025);
+  transition: background .1s;
+  animation: slidein .25s ease;
+}
+tbody tr:hover { background: rgba(255,255,255,.025); }
+tbody tr.low      { border-left-color: var(--green); }
+tbody tr.medium   { border-left-color: var(--yellow); }
+tbody tr.high     { border-left-color: var(--orange); }
+tbody tr.critical { border-left-color: var(--red); background: rgba(255,48,86,.03); }
+
+@keyframes slidein { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:translateY(0); } }
+
+td { padding: 7px 10px; vertical-align: middle; white-space: nowrap; }
+
+.t-merchant { font-weight: 500; color: #d0dde8; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.t-cat      { color: var(--dim); }
+.t-amt      { font-family: var(--mono); color: var(--green); }
+.t-loc      { color: var(--dim); }
+.t-time     { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+.bar-wrap { display: flex; align-items: center; gap: 5px; min-width: 90px; }
+.bar-track { flex: 1; height: 3px; background: rgba(255,255,255,.07); border-radius: 2px; overflow: hidden; }
+.bar-fill  { height: 100%; border-radius: 2px; transition: width .4s; }
+.bar-pct   { font-family: var(--mono); font-size: 10px; min-width: 32px; text-align: right; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .7px;
+}
+.badge.low      { background: rgba(16,185,129,.12); color: var(--green); }
+.badge.medium   { background: rgba(245,158,11,.12); color: var(--yellow); }
+.badge.high     { background: rgba(249,115,22,.12); color: var(--orange); }
+.badge.critical { background: rgba(255,48,86,.15);  color: var(--red); }
+
+
+/* ── Alerts ──────────────────────── */
+.alerts { flex: 0 0 52%; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.alerts-list { flex: 1; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; scrollbar-color: var(--s2) transparent; }
+
+.alert-card {
+  background: var(--s2);
+  border: 1px solid rgba(255,48,86,.15);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slidein .25s ease;
+}
+.alert-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--red); flex-shrink: 0; animation: pulse 1.4s ease-in-out infinite; }
+.alert-body  { flex: 1; min-width: 0; }
+.alert-name  { font-weight: 500; color: #e2e8f0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alert-sub   { color: var(--dim); font-size: 10px; margin-top: 1px; }
+.alert-pct   { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--red); flex-shrink: 0; }
+
+/* ── Categories ──────────────────── */
+.cats { flex: 1; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.cat-list { flex: 1; overflow-y: auto; padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 7px; }
+
+.cat-row { display: flex; flex-direction: column; gap: 3px; }
+.cat-top { display: flex; justify-content: space-between; font-size: 11px; }
+.cat-name { color: var(--text); }
+.cat-num  { font-family: var(--mono); color: var(--dim); font-size: 10px; }
+.cat-track { height: 3px; background: rgba(255,255,255,.06); border-radius: 2px; overflow: hidden; }
+.cat-fill  { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--cyan), var(--red)); transition: width .6s; }
+
+/* ── Footer ──────────────────────── */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 28px;
+  border-top: 1px solid var(--border);
+  background: rgba(6,12,26,.97);
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--mono);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+.footer-left { display: flex; gap: 16px; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    FRAUD SENTINEL
+  </div>
+  <div class="header-right">
+    <span id="clock">—</span>
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat">
+    <span class="stat-label">Transactions</span>
+    <span class="stat-value" id="s-total">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Fraud Detected</span>
+    <span class="stat-value red" id="s-fraud">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Fraud Rate</span>
+    <span class="stat-value yellow" id="s-rate">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Avg Amount</span>
+    <span class="stat-value green" id="s-amt">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Throughput</span>
+    <span class="stat-value" id="s-tpm">—</span>
+  </div>
+  <div class="chart-stat">
+    <span class="stat-label">Transaction Volume — last 30 min</span>
+    <canvas id="spark" style="width:100%;height:36px"></canvas>
+  </div>
+</div>
+
+<div class="main">
+  <section class="feed">
+    <div class="sec-head">
+      <span class="sec-title">Live Transaction Feed</span>
+      <span class="sec-meta" id="feed-ct">—</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Merchant</th><th>Category</th><th>Amount</th>
+            <th>Location</th><th>Risk Score</th><th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="feed-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="alerts">
+      <div class="sec-head">
+        <span class="sec-title">Fraud Alerts</span>
+        <span class="sec-meta" id="alert-ct">—</span>
+      </div>
+      <div class="alerts-list" id="alerts-list"></div>
+    </div>
+    <div class="cats">
+      <div class="sec-head">
+        <span class="sec-title">Risk by Category</span>
+      </div>
+      <div class="cat-list" id="cat-list"></div>
+    </div>
+  </aside>
+</div>
+
+<footer class="footer">
+  <div class="footer-left">
+    <span>MODEL spark-stream · XGBoost</span>
+    <span>Kafka → Spark → ML → PostgreSQL</span>
+  </div>
+  <span>Updated <span id="f-up">—</span></span>
+</footer>
+
+<script>
+const fmtCat = c => c ? c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : '—';
+
+function risk(p) {
+  if (p >= .85) return { label:'CRITICAL', cls:'critical', color:'#ff3056' };
+  if (p >= .60) return { label:'HIGH',     cls:'high',     color:'#f97316' };
+  if (p >= .30) return { label:'MEDIUM',   cls:'medium',   color:'#f59e0b' };
+  return              { label:'LOW',       cls:'low',      color:'#10b981' };
+}
+function ago(iso) {
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 5)    return 'just now';
+  if (s < 60)   return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+const fmt   = n  => '$' + parseFloat(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const trunc = (s,n) => s && s.length > n ? s.slice(0,n)+'…' : (s||'—');
+
+// clock
+setInterval(() => document.getElementById('clock').textContent =
+  new Date().toLocaleTimeString('en-US',{hour12:false}), 1000);
+
+// sparkline
+const sparkCtx = document.getElementById('spark').getContext('2d');
+const sparkChart = new Chart(sparkCtx, {
+  type:'line',
+  data:{
+    labels:[],
+    datasets:[
+      { label:'Total', data:[], borderColor:'#00d4ff', borderWidth:1.5, pointRadius:0, fill:true,
+        backgroundColor:(ctx)=>{
+          const g=ctx.chart.ctx.createLinearGradient(0,0,0,50);
+          g.addColorStop(0,'rgba(0,212,255,.18)');g.addColorStop(1,'rgba(0,212,255,0)');return g;
+        }, tension:.4 },
+      { label:'Fraud', data:[], borderColor:'#ff3056', borderWidth:1.2, pointRadius:0, fill:false, tension:.4, yAxisID:'y2' },
+    ]
+  },
+  options:{
+    animation:false, responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:  {display:false},
+      y:  {display:false, beginAtZero:true},
+      y2: {display:false, beginAtZero:true},
+    },
+  }
+});
+
+// ── Data ──────────────────────────────────────────────────
+async function get(url) { try { return await fetch(url).then(r=>r.json()); } catch { return null; } }
+
+async function refreshStats() {
+  const d = await get('/api/stats'); if (!d) return;
+  document.getElementById('s-total').textContent = Number(d.total).toLocaleString();
+  document.getElementById('s-fraud').textContent = Number(d.fraud_count).toLocaleString();
+  document.getElementById('s-rate').textContent  = d.fraud_rate + '%';
+  document.getElementById('s-amt').textContent   = fmt(d.avg_amt);
+  document.getElementById('s-tpm').textContent   = d.tpm;
+}
+
+async function refreshFeed() {
+  const rows = await get('/api/transactions'); if (!rows) return;
+  document.getElementById('feed-ct').textContent = `${rows.length} rows`;
+  const html = rows.map(r => {
+    const rv  = risk(r.fraud_probability);
+    const pct = (r.fraud_probability * 100).toFixed(1);
+    return `<tr class="${rv.cls}">
+      <td class="t-merchant">${trunc(r.merchant,24)}</td>
+      <td class="t-cat">${trunc(fmtCat(r.category),16)}</td>
+      <td class="t-amt">${fmt(r.amt)}</td>
+      <td class="t-loc">${r.city ? trunc(r.city,10)+', '+r.state : '—'}</td>
+      <td><div class="bar-wrap">
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${rv.color}"></div></div>
+        <span class="bar-pct" style="color:${rv.color}">${pct}%</span>
+      </div></td>
+      <td class="t-time">${ago(r.scored_at)}</td>
+    </tr>`;
+  }).join('');
+  const tb = document.getElementById('feed-body');
+  if (tb.innerHTML !== html) tb.innerHTML = html;
+}
+
+async function refreshAlerts() {
+  const rows = await get('/api/alerts'); if (!rows) return;
+  document.getElementById('alert-ct').textContent = `${rows.length} recent`;
+  const html = rows.map(r => `
+    <div class="alert-card">
+      <div class="alert-pulse"></div>
+      <div class="alert-body">
+        <div class="alert-name">${trunc(r.merchant,26)}</div>
+        <div class="alert-sub">${fmtCat(r.category)} · ${fmt(r.amt)} · ${r.city||'—'}, ${r.state||'—'} · ${ago(r.scored_at)}</div>
+      </div>
+      <div class="alert-pct">${(r.fraud_probability*100).toFixed(1)}%</div>
+    </div>`).join('');
+  const el = document.getElementById('alerts-list');
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
+async function refreshCats() {
+  const rows = await get('/api/categories'); if (!rows) return;
+  const max = Math.max(...rows.map(r => r.fraud_count), 1);
+  const html = rows.map(r => `
+    <div class="cat-row">
+      <div class="cat-top">
+        <span class="cat-name">${fmtCat(r.category)}</span>
+        <span class="cat-num">${r.fraud_count} · ${r.fraud_rate}%</span>
+      </div>
+      <div class="cat-track"><div class="cat-fill" style="width:${(r.fraud_count/max*100).toFixed(1)}%"></div></div>
+    </div>`).join('');
+  const el = document.getElementById('cat-list');
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
+async function refreshChart() {
+  const rows = await get('/api/chart'); if (!rows) return;
+  sparkChart.data.labels = rows.map(r=>r.label);
+  sparkChart.data.datasets[0].data = rows.map(r=>r.total);
+  sparkChart.data.datasets[1].data = rows.map(r=>r.fraud);
+  sparkChart.update('none');
+}
+
+function refreshAll() {
+  refreshStats(); refreshFeed(); refreshAlerts();
+  document.getElementById('f-up').textContent = new Date().toLocaleTimeString('en-US',{hour12:false});
+}
+
+// initial load
+refreshAll(); refreshCats(); refreshChart();
+
+setInterval(refreshAll,   2000);
+setInterval(refreshCats,  15000);
+setInterval(refreshChart, 10000);
+</script>
+</body>
+</html>

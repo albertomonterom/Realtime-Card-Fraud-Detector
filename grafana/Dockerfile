@@ -1,8 +1,5 @@
 FROM grafana/grafana:latest
 
-# Copy provisioning configs (datasources, dashboards)
-# These tell Grafana to auto-connect to Prometheus and load dashboards
+COPY provisioning /etc/grafana/provisioning
 
 EXPOSE 3000
-
-CMD [""]

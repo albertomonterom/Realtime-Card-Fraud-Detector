@@ -20,7 +20,7 @@ scrape_configs:
   #          fraud_probability_distribution
   - job_name: 'ml-scorer'
     static_configs:
-      - targets: ['ml-scorer:5001']
+      - targets: ['ml:5001']
     metrics_path: '/metrics'
     scrape_interval: 10s
 

@@ -1,4 +1,4 @@
-"""Spark Stream Processor — Requirements"""
+# Spark Stream Processor — Requirements
 
 # Spark
 pyspark==3.5.0
@@ -12,6 +12,12 @@ numpy==1.26.2
 
 # Caching
 redis==5.0.1
+
+# Database
+psycopg2-binary==2.9.9
+
+# HTTP
+requests==2.31.0
 
 # Utilities
 python-dotenv==1.0.0
