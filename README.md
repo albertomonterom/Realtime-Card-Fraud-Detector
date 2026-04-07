@@ -33,14 +33,15 @@ Strongest signals: transaction amount, time of day (night flag), merchant catego
 
 ## Architecture
 
-```
-Producer → Kafka → Stream Processor → ML Scoring API
-                                            │
-                              Redis ────────┘
-                                │
-                           PostgreSQL
-                                │
-                   Fraud Sentinel UI   Grafana
+```mermaid
+flowchart TD
+    A[Transaction Producer] -->|publishes| B[Kafka Broker]
+    B -->|streams| C[Stream Processor]
+    C -->|scores| D[ML Scoring API\nFlask + XGBoost]
+    C -->|writes results| E[(PostgreSQL)]
+    D <-->|cardholder profiles| F[(Redis Cache)]
+    E --> G[Fraud Sentinel UI]
+    E --> H[Grafana + Prometheus]
 ```
 
 ## Screenshots
